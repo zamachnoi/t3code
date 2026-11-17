@@ -228,6 +228,7 @@ const layerGitFixtureTemplates = Layer.effect(
     yield* runGit(repo, ["config", "user.name", "Test User"]);
     // Override global autocrlf on Windows for LF assertions, including linked worktrees.
     yield* runGit(repo, ["config", "core.autocrlf", "false"]);
+    yield* runGit(repo, ["config", "push.default", "simple"]);
     yield* fs.writeFileString(NodePath.join(repo, "README.md"), "hello\n");
     yield* runGit(repo, ["add", "README.md"]);
     yield* runGit(repo, ["commit", "-m", "Initial commit"]);
