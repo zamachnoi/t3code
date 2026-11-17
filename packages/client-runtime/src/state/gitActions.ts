@@ -54,7 +54,7 @@ export function buildMenuItems(
   isBusy: boolean,
   hasOriginRemote = true,
 ): GitActionMenuItem[] {
-  if (!gitStatus) return [];
+  if (!gitStatus || gitStatus.repositoryPaths !== undefined) return [];
   const terminology = changeRequestTerminologyFor(gitStatus);
 
   const hasBranch = gitStatus.refName !== null;

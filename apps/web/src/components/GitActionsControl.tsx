@@ -1450,7 +1450,11 @@ export default function GitActionsControl({
   };
 
   const canPublishRepository =
-    canWriteSourceControl && isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
+    canWriteSourceControl &&
+    isRepo &&
+    gitStatusForActions !== null &&
+    gitStatus?.repositoryPaths === undefined &&
+    !hasPrimaryRemote;
   const isDetachedHead = gitStatusForActions?.refName === null;
   const isCleanAndBehind =
     gitStatusForActions !== null &&
@@ -1556,7 +1560,7 @@ export default function GitActionsControl({
 
   return (
     <>
-      {!showActions ? null : !isRepo ? (
+      {!showActions || gitStatus?.repositoryPaths !== undefined ? null : !isRepo ? (
         <ThreadDetailsControl
           size="xs"
           variant="ghost"

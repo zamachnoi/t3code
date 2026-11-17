@@ -27,6 +27,7 @@ export interface VcsRestoreCheckpointInput {
 export const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
 
 export interface VcsDiffCheckpointsInput {
+  readonly pathPrefix?: string;
   readonly cwd: string;
   readonly fromCheckpointRef: CheckpointRef;
   readonly toCheckpointRef: CheckpointRef;

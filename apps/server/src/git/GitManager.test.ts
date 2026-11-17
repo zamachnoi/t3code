@@ -805,6 +805,10 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
           VcsStatusBroadcaster.layer.pipe(
             Layer.provide(
               GitWorkflowService.layer.pipe(
+                Layer.provide(
+                  ServerConfig.layerTest(process.cwd(), { prefix: "t3-workflow-test-" }),
+                ),
+                Layer.provide(ServerSettings.ServerSettingsService.layerTest({})),
                 Layer.provide(Layer.succeed(GitManager.GitManager, manager)),
                 Layer.provide(
                   VcsDriverRegistry.layer.pipe(
@@ -5257,6 +5261,12 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         const events: string[] = [];
         const workflows = yield* Effect.forEach([0, 1], () =>
           GitWorkflowService.make.pipe(
+            Effect.provide(
+              Layer.mergeAll(
+                ServerConfig.layerTest(process.cwd(), { prefix: "t3-workflow-test-" }),
+                ServerSettings.ServerSettingsService.layerTest({}),
+              ),
+            ),
             // Cache the real filesystem result so startImmediately reaches lease acquisition.
             Effect.provideService(FileSystem.FileSystem, {
               ...fileSystem,

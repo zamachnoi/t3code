@@ -53,6 +53,7 @@ import {
   unsetInheritedRepositoryEnv,
 } from "./VcsProcess.ts";
 import { makeWorktreeCheckoutCache } from "./worktreeCheckoutCache.ts";
+import { prefixRenameHeaders } from "./workspaceDiff.ts";
 import { removeLinkedWorktree } from "./worktreeRemoval.ts";
 import { resolveWorktreesDirectory } from "../worktreesDirectory.ts";
 import {
@@ -4136,6 +4137,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
   const getReviewDiffPreview = Effect.fn("getReviewDiffPreview")(function* (
     input: ReviewDiffPreviewInput,
+    options?: { readonly pathPrefix: string },
   ) {
     const pathArgs = input.file
       ? [input.file.path, ...(input.file.previousPath ? [input.file.previousPath] : [])].map(
@@ -4191,6 +4193,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const { subject } = yield* readReviewCommitMessage(cwd, commit.sha);
       const diffArgs = [
         ...REVIEW_DIFF_ARGS,
+        ...(options?.pathPrefix
+          ? [`--src-prefix=a/${options.pathPrefix}`, `--dst-prefix=b/${options.pathPrefix}`]
+          : []),
         ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
       ];
       const stat = yield* executeGit(
@@ -4221,7 +4226,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             ...(subject.trim() ? { commitSubject: subject.trim() } : {}),
             baseRef: commit.parent,
             headRef: commit.sha,
-            diff: patch.stdout,
+            diff: options?.pathPrefix
+              ? prefixRenameHeaders(patch.stdout, options.pathPrefix)
+              : patch.stdout,
             files,
             diffHash,
             truncated: patch.stdoutTruncated,
@@ -4239,6 +4246,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
     const diffArgs = [
       ...REVIEW_DIFF_ARGS,
+      ...(options?.pathPrefix
+        ? [`--src-prefix=a/${options.pathPrefix}`, `--dst-prefix=b/${options.pathPrefix}`]
+        : []),
       "--minimal",
       ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
     ];
@@ -4330,7 +4340,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         title: "Uncommitted",
         baseRef: "HEAD",
         headRef: null,
-        diff: dirtyDiff,
+        diff: options?.pathPrefix ? prefixRenameHeaders(dirtyDiff, options.pathPrefix) : dirtyDiff,
         ...(dirtyFiles === undefined ? {} : { files: dirtyFiles }),
         diffHash: dirtyDiffHash,
         truncated: dirtyTrackedResult.stdoutTruncated,
@@ -4344,7 +4354,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         title: review.baseRef ? `Changes vs ${review.baseRef}` : "Changes",
         baseRef: review.baseRef,
         headRef: repository.currentBranch ?? "HEAD",
-        diff: baseDiff,
+        diff: options?.pathPrefix ? prefixRenameHeaders(baseDiff, options.pathPrefix) : baseDiff,
         ...(baseFiles === undefined ? {} : { files: baseFiles }),
         diffHash: baseDiffHash,
         truncated: baseResult.stdoutTruncated,

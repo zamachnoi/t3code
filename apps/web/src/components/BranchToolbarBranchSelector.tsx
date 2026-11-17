@@ -298,7 +298,10 @@ export function BranchToolbarBranchSelector({
       ? `__checkout_pull_request__:${prReference}`
       : null;
   const canCreateBranch =
-    canChangeThreadBranch && !isSelectingWorktreeBase && trimmedBranchQuery.length > 0;
+    canChangeThreadBranch &&
+    branchStatusQuery.data?.repositoryPaths === undefined &&
+    !isSelectingWorktreeBase &&
+    trimmedBranchQuery.length > 0;
   const newRefName = sanitizeNewRefName(trimmedBranchQuery);
   const hasExactBranchMatch = branchByName.has(newRefName);
   const createBranchItemValue = canCreateBranch
@@ -676,7 +679,7 @@ export function BranchToolbarBranchSelector({
     effectiveEnvMode,
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
-    startFromOrigin,
+    startFromOrigin: branchStatusQuery.data?.repositoryPaths === undefined && startFromOrigin,
   });
 
   const branchPrBranch = resolveBranchToolbarPrBranch({
@@ -807,7 +810,7 @@ export function BranchToolbarBranchSelector({
             : "branch"
       }
       originControl={
-        isSelectingWorktreeBase
+        isSelectingWorktreeBase && branchStatusQuery.data?.repositoryPaths === undefined
           ? { checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }
           : undefined
       }

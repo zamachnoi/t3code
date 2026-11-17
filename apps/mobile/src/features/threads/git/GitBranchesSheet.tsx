@@ -30,13 +30,14 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
 
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
-      ? vcsEnvironment.branch({
+      ? vcsEnvironment.status({
           environmentId: selectedThread.environmentId,
           input: { cwd: selectedThreadCwd },
         })
       : null,
   );
 
+  const isWorkspace = gitStatus.data?.repositoryPaths !== undefined;
   const currentBranchLabel = gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD";
   const currentWorktreePath = selectedThreadCwd;
   const availableBranches = gitState.selectedThreadBranches;
@@ -46,6 +47,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
   const [newBranchName, setNewBranchName] = useState("");
   const [worktreeBaseBranchOverride, setWorktreeBaseBranchOverride] = useState<string | null>(null);
   const worktreeBaseBranch =
+    (isWorkspace ? "HEAD" : null) ??
     worktreeBaseBranchOverride ??
     (currentBranchLabel === "Detached HEAD" ? "main" : currentBranchLabel);
   const [worktreeBranchName, setWorktreeBranchName] = useState("");
@@ -64,38 +66,42 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
-      <FormSection title="New branch">
-        <FormField
-          value={newBranchName}
-          onChangeText={setNewBranchName}
-          placeholder="feature/mobile-polish"
-          accessibilityLabel="New branch name"
-        />
-        <SheetActionButton
-          icon="plus"
-          label="Create & checkout"
-          tone="primary"
-          disabled={!canChangeThreadBranch || busy || newBranchName.trim().length === 0}
-          onPress={() => {
-            const branch = sanitizeFeatureBranchName(newBranchName.trim());
-            if (branch.length === 0) return;
-            void gitActions.onCreateSelectedThreadBranch(branch).then((result) => {
-              if (result === null) return;
-              setNewBranchName("");
-              navigation.goBack();
-            });
-          }}
-        />
-      </FormSection>
+      {!isWorkspace && (
+        <FormSection title="New branch">
+          <FormField
+            value={newBranchName}
+            onChangeText={setNewBranchName}
+            placeholder="feature/mobile-polish"
+            accessibilityLabel="New branch name"
+          />
+          <SheetActionButton
+            icon="plus"
+            label="Create & checkout"
+            tone="primary"
+            disabled={!canChangeThreadBranch || busy || newBranchName.trim().length === 0}
+            onPress={() => {
+              const branch = sanitizeFeatureBranchName(newBranchName.trim());
+              if (branch.length === 0) return;
+              void gitActions.onCreateSelectedThreadBranch(branch).then((result) => {
+                if (result === null) return;
+                setNewBranchName("");
+                navigation.goBack();
+              });
+            }}
+          />
+        </FormSection>
+      )}
 
       <FormSection title="New worktree">
-        <FormField
-          label="Base branch"
-          value={worktreeBaseBranch}
-          onChangeText={setWorktreeBaseBranchOverride}
-          placeholder="main"
-          accessibilityLabel="Worktree base branch"
-        />
+        {!isWorkspace && (
+          <FormField
+            label="Base branch"
+            value={worktreeBaseBranch}
+            onChangeText={setWorktreeBaseBranchOverride}
+            placeholder="main"
+            accessibilityLabel="Worktree base branch"
+          />
+        )}
         <FormField
           label="New branch"
           value={worktreeBranchName}
@@ -155,7 +161,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               description={subtitle}
               selected={branch.current}
               separated={index > 0}
-              disabled={!canChangeThreadBranch || busy || disabled}
+              disabled={isWorkspace || !canChangeThreadBranch || busy || disabled}
               onPress={() => {
                 void gitActions.onCheckoutSelectedThreadBranch(branch.name).then((result) => {
                   if (result === null) return;

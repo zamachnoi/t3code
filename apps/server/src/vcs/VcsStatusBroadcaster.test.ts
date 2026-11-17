@@ -91,6 +91,7 @@ function layerTestFor(state: {
   fileSystem?: FileSystem.FileSystem;
   pullCurrentBranch?: GitWorkflowService.GitWorkflowService["Service"]["pullCurrentBranch"];
   headPath?: string;
+  headPaths?: ReadonlyArray<string>;
   headPathCalls?: number;
   failLocalStatus?: boolean;
   onLocalStatusFailure?: Effect.Effect<void>;
@@ -182,10 +183,10 @@ function layerTestFor(state: {
             state.remoteInvalidationCalls += 1;
           }),
         ...(state.pullCurrentBranch ? { pullCurrentBranch: state.pullCurrentBranch } : {}),
-        headPath: () =>
+        headPaths: () =>
           Effect.sync(() => {
             state.headPathCalls = (state.headPathCalls ?? 0) + 1;
-            return state.headPath ?? null;
+            return state.headPaths ?? (state.headPath ? [state.headPath] : []);
           }),
       }),
     ),
@@ -1632,7 +1633,10 @@ describe("VcsStatusBroadcaster", () => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const gitDir = yield* fs.makeTempDirectoryScoped({ prefix: "vcs-head-watch-" });
+      const otherGitDir = yield* fs.makeTempDirectoryScoped({ prefix: "vcs-other-head-" });
       const headPath = path.join(gitDir, "HEAD");
+      const otherHead = path.join(otherGitDir, "HEAD");
+      yield* fs.writeFileString(otherHead, "ref: refs/heads/main\n");
       yield* fs.writeFileString(headPath, "ref: refs/heads/main\n");
       const state = {
         currentLocalStatus: { ...baseLocalStatus, isDefaultRef: true, refName: "main" },
@@ -1642,7 +1646,7 @@ describe("VcsStatusBroadcaster", () => {
         localInvalidationCalls: 0,
         remoteInvalidationCalls: 0,
         remoteStatusRefreshUpstreamValues: [] as Array<boolean | undefined>,
-        headPath,
+        headPaths: [otherHead, headPath],
       };
 
       yield* Effect.gen(function* () {

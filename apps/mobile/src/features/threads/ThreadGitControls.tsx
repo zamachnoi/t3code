@@ -129,6 +129,7 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
       };
     }
     const action = resolveQuickAction(gitStatus, busy, isDefaultRef, hasPrimaryRemote);
+    if (gitStatus?.repositoryPaths !== undefined) return { ...action, disabled: true };
     return !canWriteSourceControl && (action.kind === "run_pull" || action.kind === "run_action")
       ? {
           ...action,

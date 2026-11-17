@@ -212,13 +212,15 @@ const make = Effect.gen(function* () {
 
     let baseRef = input.baseRef;
     if (baseRef === undefined) {
-      if (localStatus.refName === null) {
+      if (localStatus.repositoryPaths !== undefined) {
+        baseRef = "HEAD";
+      } else if (localStatus.refName === null) {
         return yield* failure(
           "invalid_request",
           "Could not determine the current branch of the project workspace (detached HEAD?). Pass baseRef explicitly.",
         );
       }
-      baseRef = localStatus.refName;
+      baseRef ??= localStatus.refName!;
     }
 
     const startFromOrigin =

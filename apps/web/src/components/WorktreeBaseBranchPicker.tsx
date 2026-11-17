@@ -53,7 +53,7 @@ export function WorktreeBaseBranchPicker({
     effectiveEnvMode: "worktree",
     resolvedActiveBranch: value || null,
     resolvedActiveBranchIsRemote: selectedRef ? selectedRef.isRemote === true : null,
-    startFromOrigin,
+    startFromOrigin: branches.data?.repositoryPaths === undefined && startFromOrigin,
   });
   const branchByName = new Map(branches.refs.map((branch) => [branch.name, branch]));
   const items = [...branchByName.keys()];
@@ -88,7 +88,11 @@ export function WorktreeBaseBranchPicker({
       isFetchingNextPage={branches.isFetchingNextPage}
       onLoadNext={branches.loadNext}
       statusText={statusText}
-      originControl={{ checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }}
+      originControl={
+        branches.data?.repositoryPaths === undefined
+          ? { checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }
+          : undefined
+      }
       popupProps={{ align: "start", side: "bottom", className: "flex w-80 flex-col" }}
       renderItem={(name, index) => {
         const branch = branchByName.get(name);

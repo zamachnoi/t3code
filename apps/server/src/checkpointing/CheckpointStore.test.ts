@@ -109,6 +109,50 @@ function buildLargeText(lineCount = 5_000): string {
 }
 
 it.layer(layerTest)("CheckpointStore.layer", (it) => {
+  it.effect("captures, diffs and restores immediate child repositories independently", () =>
+    Effect.gen(function* () {
+      const enclosing = yield* makeTmpDir();
+      yield* initRepoWithCommit(enclosing);
+      const cwd = NodePath.join(enclosing, "workspace");
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.makeDirectory(cwd);
+      const store = yield* CheckpointStore.CheckpointStore;
+      for (const name of ["api", "web app"]) {
+        yield* fs.makeDirectory(NodePath.join(cwd, name));
+        yield* initRepoWithCommit(NodePath.join(cwd, name));
+      }
+      yield* fs.makeDirectory(NodePath.join(cwd, "other", "nested"), { recursive: true });
+      yield* initRepoWithCommit(NodePath.join(cwd, "other", "nested"));
+      const fromCheckpointRef = checkpointRefForThreadTurn(ThreadId.make("multi-repo"), 0);
+      const toCheckpointRef = checkpointRefForThreadTurn(ThreadId.make("multi-repo"), 1);
+      expect(yield* store.isGitRepository(cwd)).toBe(true);
+      yield* store.captureCheckpoint({ cwd, checkpointRef: fromCheckpointRef });
+      for (const name of ["api", "web app", "other/nested"]) {
+        yield* fs.writeFileString(NodePath.join(cwd, name, "README.md"), `${name}\n`);
+      }
+      yield* store.captureCheckpoint({ cwd, checkpointRef: toCheckpointRef });
+      const input = { cwd, fromCheckpointRef, toCheckpointRef, ignoreWhitespace: false };
+      const files = parseTurnDiffFilesFromNumstat(
+        yield* store.diffCheckpoints({ ...input, format: "numstat" }),
+      );
+      expect(files.map((file) => file.path)).toEqual(["api/README.md", "web app/README.md"]);
+      const diff = yield* store.diffCheckpoints({ ...input, filePaths: ["web app/README.md"] });
+      expect(diff).toContain("b/web app/README.md");
+      expect(diff).not.toContain("b/api/README.md");
+      expect(yield* store.hasCheckpointRef({ cwd, checkpointRef: toCheckpointRef })).toBe(true);
+      expect(yield* store.restoreCheckpoint({ cwd, checkpointRef: fromCheckpointRef })).toBe(true);
+      expect(yield* fs.readFileString(NodePath.join(cwd, "api", "README.md"))).toBe("# test\n");
+      expect(yield* fs.readFileString(NodePath.join(cwd, "web app", "README.md"))).toBe("# test\n");
+      expect(yield* fs.readFileString(NodePath.join(cwd, "other", "nested", "README.md"))).toBe(
+        "other/nested\n",
+      );
+      yield* store.deleteCheckpointRefs({
+        cwd,
+        checkpointRefs: [fromCheckpointRef, toCheckpointRef],
+      });
+      expect(yield* store.hasCheckpointRef({ cwd, checkpointRef: toCheckpointRef })).toBe(false);
+    }),
+  );
   it.effect("detects a nested workspace without its own .git entry", () =>
     Effect.gen(function* () {
       const tmp = yield* makeTmpDir();

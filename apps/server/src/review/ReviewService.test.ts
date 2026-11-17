@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -12,6 +13,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as KnownWorkspaces from "../workspace/KnownWorkspaces.ts";
 import * as ReviewService from "./ReviewService.ts";
 
@@ -96,6 +98,75 @@ function layer(input: {
 }
 
 describe("ReviewService", () => {
+  it.effect(
+    "reviews matching filenames in child repositories and lazily loads the selected file",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-multi-" });
+        yield* Effect.gen(function* () {
+          const git = yield* GitVcsDriver.GitVcsDriver;
+          const review = yield* ReviewService.ReviewService;
+          for (const name of ["api", "web app"]) {
+            const repo = `${cwd}/${name}`;
+            yield* fs.makeDirectory(repo);
+            for (const args of [
+              ["init", "-b", "main"],
+              ["config", "user.email", "test@test"],
+              ["config", "user.name", "Test"],
+            ])
+              yield* git.execute({ operation: "test.setup", cwd: repo, args });
+            yield* fs.writeFileString(`${repo}/same.txt`, "before\n");
+            for (const args of [
+              ["add", "."],
+              ["commit", "-m", "init"],
+            ])
+              yield* git.execute({ operation: "test.setup", cwd: repo, args });
+            yield* fs.writeFileString(`${repo}/same.txt`, `${name}\n`);
+          }
+          const preview = yield* review.getDiffPreview({
+            cwd,
+            sourceKind: "working-tree",
+            metadataOnly: true,
+          });
+          assert.deepEqual(
+            preview.sources[0]?.files?.map((file) => file.path),
+            ["api/same.txt", "web app/same.txt"],
+          );
+          assert.strictEqual(preview.sources[0]?.patchesDeferred, true);
+          const file = yield* review.getDiffPreview({
+            cwd,
+            file: { path: "web app/same.txt", previousPath: null, sourceKind: "working-tree" },
+          });
+          assert.match(file.sources[0]!.diff, /b\/web app\/same.txt/);
+          assert.strictEqual(file.sources[0]!.diff.includes("b/api/same.txt"), false);
+          const contents = yield* review.getDiffFileContents({
+            cwd,
+            sourceKind: "working-tree",
+            changeType: "change",
+            baseRef: "HEAD",
+            headRef: null,
+            oldPath: "web app/same.txt",
+            newPath: "web app/same.txt",
+          });
+          assert.deepEqual(contents, { oldContents: "before\n", newContents: "web app\n" });
+        }).pipe(
+          Effect.provide(
+            ReviewService.layer.pipe(
+              Layer.provide(
+                Layer.mock(KnownWorkspaces.KnownWorkspaces)({
+                  contains: () => Effect.succeed(true),
+                }),
+              ),
+              Layer.provideMerge(Layer.mergeAll(GitVcsDriver.layer, VcsDriverRegistry.layer)),
+              Layer.provideMerge(VcsProcess.layer),
+              Layer.provideMerge(ServerConfig.layerTest(cwd, { prefix: "t3-review-multi-state-" })),
+              Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+            ),
+          ),
+        );
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
   it.effect("rejects diff preview cwd outside the configured workspace roots", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

@@ -20,6 +20,18 @@ commit links follow your **Open links in** setting; on web, when that opens a ne
 shows an **Open link** button. Command/Ctrl+Click always opens the link in your browser. Commit links follow the **Open pull requests in T3 Code**
 setting in **Settings → Diffs**.
 
+## Projects with several repositories
+
+Add the parent folder as a project when you work across several Git repositories. If the parent
+is not itself a repository, T3 Code discovers repositories in its immediate child folders and
+shows their diffs with paths such as `api/src/index.ts` and `web/src/index.ts`. Turn checkpoints
+and restore cover those repositories too.
+
+Choose a new worktree to create one workspace containing a worktree for every child repository,
+with the same new branch name in each. Each starts from its own current HEAD; uncommitted changes
+and files outside the repositories are not copied. Worktree removal checks every repository for
+local changes. Commit and push from the individual repositories.
+
 ## Connect an account
 
 Install Git and configure authentication on the machine running your T3 Code server. For a remote

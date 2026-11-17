@@ -1012,29 +1012,39 @@ export const make = Effect.gen(function* () {
 
   // Runs for the subscription lifetime, so tracing would leave a span open indefinitely.
   const watchHead = Effect.fnUntraced(function* (cwd: string, ready: Deferred.Deferred<void>) {
-    const headPath = yield* workflow.headPath(cwd);
-    if (headPath === null) return;
-    const headDirectory = path.dirname(headPath);
+    const headDirectories = [
+      ...new Set((yield* workflow.headPaths(cwd)).map((head) => path.dirname(head))),
+    ];
+    if (headDirectories.length === 0) return;
+    const pending = new Set(headDirectories);
     // Git replaces HEAD by renaming HEAD.lock, which a watch on the file itself would lose.
-    yield* fs
-      .watch(headDirectory, {
-        onReady: () => Deferred.doneUnsafe(ready, Exit.void),
-      })
-      .pipe(
-        // On Windows a watch outlives its deleted directory and reports it ~150k times a second.
-        Stream.takeUntilEffect((event) =>
-          event._tag === "Remove"
-            ? fs.exists(headDirectory).pipe(Effect.map((exists) => !exists))
-            : Effect.succeed(false),
-        ),
-        Stream.filter((event) => path.basename(event.path) === "HEAD"),
-        // A rebase moves HEAD many times; refresh once for whatever arrived during a refresh.
-        Stream.buffer({ capacity: 1, strategy: "sliding" }),
-        Stream.mapEffect(() => retryCheckedOutRef(cwd, publishCheckedOutRef(cwd))),
-        // Detailed status waits behind its own reads; the branch keeps up on the stage above.
-        Stream.buffer({ capacity: 1, strategy: "sliding" }),
-        Stream.runForEach(() => retryCheckedOutRef(cwd, reconcileCheckedOutRef(cwd))),
-      );
+    yield* Stream.mergeAll(
+      headDirectories.map((headDirectory) =>
+        fs
+          .watch(headDirectory, {
+            onReady: () => {
+              pending.delete(headDirectory);
+              if (pending.size === 0) Deferred.doneUnsafe(ready, Exit.void);
+            },
+          })
+          .pipe(
+            Stream.takeUntilEffect((event) =>
+              event._tag === "Remove"
+                ? fs.exists(headDirectory).pipe(Effect.map((exists) => !exists))
+                : Effect.succeed(false),
+            ),
+          ),
+      ),
+      { concurrency: "unbounded" },
+    ).pipe(
+      Stream.filter((event) => path.basename(event.path) === "HEAD"),
+      // A rebase moves HEAD many times; refresh once for whatever arrived during a refresh.
+      Stream.buffer({ capacity: 1, strategy: "sliding" }),
+      Stream.mapEffect(() => retryCheckedOutRef(cwd, publishCheckedOutRef(cwd))),
+      // Detailed status waits behind its own reads; the branch keeps up on the stage above.
+      Stream.buffer({ capacity: 1, strategy: "sliding" }),
+      Stream.runForEach(() => retryCheckedOutRef(cwd, reconcileCheckedOutRef(cwd))),
+    );
   });
 
   const retainHeadWatcher = Effect.fn("VcsStatusBroadcaster.retainHeadWatcher")(function* (

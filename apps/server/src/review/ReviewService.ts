@@ -7,6 +7,7 @@ import * as Path from "effect/Path";
 
 import {
   VcsRepositoryDetectionError,
+  type ReviewDiffPreviewSource,
   VcsUnsupportedOperationError,
   type ReviewBranchCommitsInput,
   type ReviewBranchCommitsResult,
@@ -20,6 +21,7 @@ import {
 import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import { makeWorkspaceRepositories } from "../vcs/workspaceRepositories.ts";
 import * as KnownWorkspaces from "../workspace/KnownWorkspaces.ts";
 
 const WORKSPACE_BOUND_SUBJECTS = {
@@ -50,6 +52,7 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
+  const listRepositories = yield* makeWorkspaceRepositories;
   const knownWorkspaces = yield* KnownWorkspaces.KnownWorkspaces;
 
   const canonicalizePath = (value: string) => {
@@ -98,6 +101,8 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     yield* assertWorkspaceBoundCwd("ReviewService.getBranchCommits", input.cwd);
 
+    const repositories = yield* listRepositories(input.cwd);
+    if (repositories[0]?.prefix !== "") return { commits: [], truncated: false };
     const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
     if (!handle) return { commits: [], truncated: false };
     if (handle.kind !== "git") {
@@ -115,16 +120,70 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     yield* assertWorkspaceBoundCwd("ReviewService.getDiffPreview", input.cwd);
 
-    const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
-    if (!handle) {
-      return {
-        cwd: input.cwd,
-        generatedAt: yield* DateTime.now,
-        sources: [],
-      };
+    const repositories = yield* listRepositories(input.cwd);
+    if (repositories[0]?.prefix === "") return yield* git.getReviewDiffPreview(input);
+    const sources = new Map<string, ReviewDiffPreviewSource>();
+    let incomplete = false;
+    for (const repository of repositories) {
+      const file = input.file;
+      if (
+        file &&
+        (!file.path.startsWith(repository.prefix) ||
+          (file.previousPath !== null && !file.previousPath.startsWith(repository.prefix)))
+      )
+        continue;
+      const preview = yield* git.getReviewDiffPreview(
+        {
+          ...input,
+          cwd: repository.cwd,
+          ...(file
+            ? {
+                file: {
+                  ...file,
+                  path: file.path.slice(repository.prefix.length),
+                  previousPath: file.previousPath?.slice(repository.prefix.length) ?? null,
+                },
+              }
+            : {}),
+        },
+        { pathPrefix: repository.prefix },
+      );
+      incomplete ||= preview.incomplete ?? false;
+      for (const source of preview.sources) {
+        const { files: sourceFiles, ...sourceWithoutFiles } = source;
+        const previous = sources.get(source.kind);
+        const files = sourceFiles?.map((file) => ({
+          ...file,
+          path: repository.prefix + file.path,
+          previousPath: file.previousPath === null ? null : repository.prefix + file.previousPath,
+        }));
+        const diff = (previous?.diff ?? "") + source.diff;
+        sources.set(source.kind, {
+          ...sourceWithoutFiles,
+          id: source.kind,
+          baseRef: source.kind === "working-tree" ? "HEAD" : null,
+          headRef: null,
+          diff: diff.slice(0, input.file ? 1_048_576 : 120_000),
+          diffHash: (previous?.diffHash ?? "") + repository.prefix + source.diffHash,
+          truncated:
+            source.truncated ||
+            previous?.truncated === true ||
+            diff.length > (input.file ? 1_048_576 : 120_000),
+          ...(files !== undefined && (previous === undefined || previous.files !== undefined)
+            ? { files: [...(previous?.files ?? []), ...files] }
+            : {}),
+          patchesDeferred:
+            source.patchesDeferred === true &&
+            (previous === undefined || previous.patchesDeferred === true),
+        });
+      }
     }
-
-    return yield* git.getReviewDiffPreview(input);
+    return {
+      cwd: input.cwd,
+      generatedAt: yield* DateTime.now,
+      sources: [...sources.values()],
+      ...(incomplete ? { incomplete: true } : {}),
+    };
   });
 
   const getDiffFileContents: ReviewService["Service"]["getDiffFileContents"] = Effect.fn(
@@ -132,16 +191,32 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     yield* assertWorkspaceBoundCwd("ReviewService.getDiffFileContents", input.cwd);
 
-    const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
-    if (handle?.kind !== "git") {
+    const repositories = yield* listRepositories(input.cwd);
+    const repository = repositories.find(
+      (repo) => input.newPath.startsWith(repo.prefix) && input.oldPath.startsWith(repo.prefix),
+    );
+    if (!repository)
       return yield* new VcsUnsupportedOperationError({
         operation: "ReviewService.getDiffFileContents",
-        kind: handle?.kind ?? "unknown",
-        detail: "Unchanged diff expansion currently requires a Git repository.",
+        kind: "unknown",
+        detail: "The file must belong to one project repository.",
       });
-    }
-
-    return yield* git.getReviewDiffFileContents(input);
+    if (repository.prefix === "") return yield* git.getReviewDiffFileContents(input);
+    const preview = yield* git.getReviewDiffPreview({
+      cwd: repository.cwd,
+      ...(input.sourceKind === "commit" ? {} : { sourceKind: input.sourceKind }),
+      metadataOnly: true,
+      ...(input.baseRef === null ? {} : { baseRef: input.baseRef }),
+    });
+    const source = preview.sources.find((source) => source.kind === input.sourceKind);
+    return yield* git.getReviewDiffFileContents({
+      ...input,
+      cwd: repository.cwd,
+      oldPath: input.oldPath.slice(repository.prefix.length),
+      newPath: input.newPath.slice(repository.prefix.length),
+      baseRef: source?.baseRef ?? input.baseRef,
+      headRef: source?.headRef ?? input.headRef,
+    });
   });
 
   return ReviewService.of({

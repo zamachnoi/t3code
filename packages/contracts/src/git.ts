@@ -221,6 +221,7 @@ const VcsStatusChangeRequest = Schema.Struct({
 });
 
 const VcsStatusLocalShape = {
+  repositoryPaths: Schema.optional(Schema.Array(GitFilePath)),
   isRepo: Schema.Boolean,
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
   hasPrimaryRemote: Schema.Boolean,
@@ -285,6 +286,7 @@ export const VcsStatusStreamEvent = Schema.Union([
 export type VcsStatusStreamEvent = typeof VcsStatusStreamEvent.Type;
 
 export const VcsListRefsResult = Schema.Struct({
+  repositoryPaths: Schema.optional(Schema.Array(GitFilePath)),
   isAtRepositoryRoot: Schema.optional(Schema.Boolean),
   refs: Schema.Array(VcsRef),
   isRepo: Schema.Boolean,

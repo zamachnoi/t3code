@@ -50,6 +50,7 @@ import * as CheckoutCloner from "./CheckoutCloner.ts";
 import * as CheckpointUntrackedBlobs from "./checkpointUntrackedBlobs.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
+import { prefixRenameHeaders } from "./workspaceDiff.ts";
 
 export interface ExecuteGitInput {
   readonly operation: string;
@@ -371,6 +372,7 @@ export class GitVcsDriver extends Context.Service<
     ) => Effect.Effect<ReviewBranchCommitsResult, GitCommandError>;
     readonly getReviewDiffPreview: (
       input: ReviewDiffPreviewInput,
+      options?: { readonly pathPrefix: string },
     ) => Effect.Effect<ReviewDiffPreviewResult, GitCommandError>;
     readonly getReviewDiffFileContents: (
       input: ReviewDiffFileContentsInput,
@@ -2084,6 +2086,9 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           "--no-textconv",
           "--submodule=short",
           ...PATCH_RENDER_PREFIX_ARGS,
+          ...(input.pathPrefix
+            ? [`--src-prefix=a/${input.pathPrefix}`, `--dst-prefix=b/${input.pathPrefix}`]
+            : []),
           ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
           `${fromRevision}^{commit}`,
           `${input.toCheckpointRef}^{commit}`,
@@ -2107,7 +2112,9 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         });
       }
 
-      return result.stdout;
+      return input.pathPrefix && input.format !== "numstat"
+        ? prefixRenameHeaders(result.stdout, input.pathPrefix)
+        : result.stdout;
     }),
 
     listAuthoredPaths: Effect.fn("GitVcsDriver.checkpoints.listAuthoredPaths")(function* (input) {
